@@ -1,0 +1,53 @@
+{
+  "name": "dsh-conversation-tools",
+  "version": "2.2.0",
+  "description": "In-conversation search, up-arrow recall of sent messages with their attachments, and regenerate / continue actions for finished answers. 对话工具：会话内查找、上键取回历史消息与附件、重新生成与继续生成。",
+  "keywords": [
+    "dsh",
+    "dsh-plugin",
+    "deepseek-harness",
+    "conversation",
+    "search",
+    "history",
+    "composer",
+    "chat"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "icon": "icon.svg",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ernesto-yuan/dsh-conversation-tools.git"
+  },
+  "homepage": "https://github.com/Ernesto-yuan/dsh-conversation-tools#readme",
+  "exports": {
+    ".": "./index.js",
+    "./client": "./client.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "client.js",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "engines": {
+    "dsh": ">=0.2.1-rc.1"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-chat",
+        "@deepseek-ai/dsh-client-locale"
+      ]
+    }
+  }
+}

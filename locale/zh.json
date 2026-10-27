@@ -1,6 +1,6 @@
 {
   "meta": {
-    "title": "对话工具",
+    "title": "Conversation Tools",
     "description": "在对话界面里查找聊天记录、用向上键取回发过的消息（含附件），并为已完成的回答加上重新生成 / 继续生成按钮。"
   }
 }

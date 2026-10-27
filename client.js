@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     /** Locale namespace of this feature's copy. */
     const NAMESPACE = 'conversation-tools';
     /** Build marker: proves which client bundle the page actually loaded. */
-    const VERSION = '2.2.0';
+    const VERSION = '2.2.1';
     /** Upper bound on rendered search hits. */
     const MAX_RESULTS = 100;
     /** Upper bound on attachments one recall restores. */

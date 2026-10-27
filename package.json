@@ -1,6 +1,6 @@
 {
   "name": "dsh-conversation-tools",
-  "version": "2.2.0",
+  "version": "2.2.1",
   "description": "In-conversation search, up-arrow recall of sent messages with their attachments, and regenerate / continue actions for finished answers. 对话工具：会话内查找、上键取回历史消息与附件、重新生成与继续生成。",
   "keywords": [
     "dsh",

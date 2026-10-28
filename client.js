@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     /** Locale namespace of this feature's copy. */
     const NAMESPACE = 'conversation-tools';
     /** Build marker: proves which client bundle the page actually loaded. */
-    const VERSION = '2.2.1';
+    const VERSION = '2.3.0';
     /** Upper bound on rendered search hits. */
     const MAX_RESULTS = 100;
     /** Upper bound on attachments one recall restores. */
@@ -37,6 +37,9 @@ window.__ModuleLoader__.load({
       'search.roleAssistant': '助手',
       'search.turn': '第 {turn} 轮',
       'history.hint': '按向上键取回上一条发送的消息',
+      'image.copy': '复制图片',
+      'image.copied': '已复制图片',
+      'image.failed': '复制失败',
     };
 
     const EN = {
@@ -61,6 +64,9 @@ window.__ModuleLoader__.load({
       'search.roleAssistant': 'Assistant',
       'search.turn': 'turn {turn}',
       'history.hint': 'Press the up arrow to recall the last message you sent',
+      'image.copy': 'Copy image',
+      'image.copied': 'Image copied',
+      'image.failed': 'Copy failed',
     };
 
     const CSS = `
@@ -90,6 +96,10 @@ window.__ModuleLoader__.load({
 .ct-preview-actions { flex: none; display: flex; justify-content: flex-end; }
 .ct-preview-copy { display: inline-flex; align-items: center; gap: 4px; height: 26px; padding: 0 10px; border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-layer-1); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; cursor: pointer; }
 .ct-preview-copy:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 10%, transparent); }
+.ct-img-copy { position: fixed; z-index: 10000; box-sizing: border-box; display: inline-flex; align-items: center; gap: 5px; height: 26px; padding: 0 9px; border: 1px solid var(--dsw-alias-border-l1); border-radius: var(--dsw-radius-sm); background: var(--dsw-alias-bg-overlay); color: var(--dsw-alias-label-primary); font: inherit; font-size: 12px; line-height: 1; cursor: pointer; box-shadow: var(--dsw-elevation-soft, 0 2px 8px rgba(0,0,0,.16)); }
+.ct-img-copy:hover { background: color-mix(in srgb, var(--dsw-alias-brand-primary) 12%, var(--dsw-alias-bg-overlay)); }
+.ct-img-copy[hidden] { display: none; }
+.ct-img-copy-failed { border-color: var(--dsw-alias-state-error-primary); color: var(--dsw-alias-state-error-primary); }
 `;
 
     /** Text of user-message wire blocks. */
@@ -354,6 +364,198 @@ window.__ModuleLoader__.load({
       }
       area.remove();
       return done;
+    }
+
+    /* ---------- copy an image from the conversation ---------- */
+
+    /** Smallest rendered size (px) that counts as content, not an inline icon. */
+    const IMAGE_MIN_SIZE = 56;
+
+    /** The chat image a pointer event sits on, or null. */
+    function chatImageAt(target) {
+      if (target === null || typeof target !== 'object' || typeof target.closest !== 'function') return null;
+      const img = target.closest('img');
+      if (img === null || img === undefined || typeof img.closest !== 'function') return null;
+      if (img.closest('[data-chat-flow]') === null) return null;
+      const rect = typeof img.getBoundingClientRect === 'function' ? img.getBoundingClientRect() : null;
+      if (rect === null || rect.width < IMAGE_MIN_SIZE || rect.height < IMAGE_MIN_SIZE) return null;
+      return img;
+    }
+
+    /** Draw into a fresh canvas and resolve the PNG blob. */
+    function canvasPng(width, height, draw) {
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(width));
+      canvas.height = Math.max(1, Math.round(height));
+      const context = canvas.getContext('2d');
+      if (context === null || context === undefined) throw new Error('canvas 2d context unavailable');
+      draw(context);
+      return new Promise((resolve, reject) => {
+        canvas.toBlob((blob) => {
+          if (blob === null || blob === undefined) reject(new Error('canvas.toBlob returned null'));
+          else resolve(blob);
+        }, 'image/png');
+      });
+    }
+
+    /** Read the image bytes, falling back to rasterizing the element. */
+    async function imageBlob(img) {
+      const src = typeof img.currentSrc === 'string' && img.currentSrc !== '' ? img.currentSrc : img.src;
+      if (typeof src === 'string' && src !== '') {
+        try {
+          const response = await fetch(src, { credentials: 'include' });
+          if (response.ok) {
+            const blob = await response.blob();
+            if (typeof blob.type === 'string' && blob.type.startsWith('image/')) return blob;
+          }
+        } catch (error) {
+          /* cross-origin or opaque source: rasterize the element instead */
+        }
+      }
+      const width = img.naturalWidth || img.width;
+      const height = img.naturalHeight || img.height;
+      if (!width || !height) throw new Error('image has no size yet');
+      return canvasPng(width, height, (context) => context.drawImage(img, 0, 0, width, height));
+    }
+
+    /** Convert any image blob to PNG, which is what the clipboard accepts. */
+    async function pngBlob(blob) {
+      if (blob.type === 'image/png') return blob;
+      if (typeof createImageBitmap === 'function') {
+        const bitmap = await createImageBitmap(blob);
+        try {
+          return await canvasPng(bitmap.width, bitmap.height, (context) => context.drawImage(bitmap, 0, 0));
+        } finally {
+          if (typeof bitmap.close === 'function') bitmap.close();
+        }
+      }
+      const url = URL.createObjectURL(blob);
+      try {
+        const image = await new Promise((resolve, reject) => {
+          const element = new Image();
+          element.onload = () => resolve(element);
+          element.onerror = () => reject(new Error('image could not be decoded'));
+          element.src = url;
+        });
+        return await canvasPng(image.naturalWidth, image.naturalHeight, (context) => context.drawImage(image, 0, 0));
+      } finally {
+        URL.revokeObjectURL(url);
+      }
+    }
+
+    /** Copy one chat image into the clipboard as PNG. */
+    async function copyImage(img) {
+      if (navigator.clipboard === undefined || typeof navigator.clipboard.write !== 'function' || typeof ClipboardItem !== 'function') {
+        throw new Error('this browser cannot write images to the clipboard');
+      }
+      const png = await pngBlob(await imageBlob(img));
+      await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
+    }
+
+    /**
+     * Hover affordance over conversation images: a small button that copies the
+     * image under the pointer to the clipboard. Imperative because the images
+     * belong to the host's renderer, not to a slot this bundle owns.
+     * @param translate - namespace-bound translator.
+     * @returns disposer removing the button and every listener.
+     */
+    function installImageCopy(translate) {
+      if (typeof document === 'undefined' || document.body === null) return () => {};
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'ct-img-copy';
+      button.hidden = true;
+      button.setAttribute('aria-label', translate('image.copy'));
+      const label = document.createElement('span');
+      label.textContent = translate('image.copy');
+      button.appendChild(label);
+      document.body.appendChild(button);
+
+      let hovered = null;
+      let hideTimer = 0;
+      let labelTimer = 0;
+      let busy = false;
+
+      const clearHide = () => { if (hideTimer) { window.clearTimeout(hideTimer); hideTimer = 0; } };
+      const hide = () => { clearHide(); hovered = null; button.hidden = true; };
+      const scheduleHide = () => { clearHide(); hideTimer = window.setTimeout(hide, 180); };
+
+      const resetLabel = () => {
+        label.textContent = translate('image.copy');
+        button.classList.remove('ct-img-copy-failed');
+      };
+      const flash = (text, failed) => {
+        if (labelTimer) window.clearTimeout(labelTimer);
+        label.textContent = text;
+        button.classList.toggle('ct-img-copy-failed', failed === true);
+        labelTimer = window.setTimeout(resetLabel, 1400);
+      };
+
+      const place = (img) => {
+        const rect = img.getBoundingClientRect();
+        const width = button.offsetWidth || 96;
+        const left = Math.min(Math.max(6, window.innerWidth - width - 6), Math.max(6, rect.right - width - 8));
+        button.style.left = left + 'px';
+        button.style.top = Math.max(6, rect.top + 8) + 'px';
+      };
+
+      const show = (img) => { clearHide(); hovered = img; place(img); button.hidden = false; };
+
+      const onOver = (event) => {
+        if (busy) return;
+        const img = chatImageAt(event.target);
+        if (img === null) return;
+        if (img === hovered) clearHide();
+        else show(img);
+      };
+      const onOut = (event) => {
+        if (hovered === null) return;
+        if (button.contains(event.target) === true) { scheduleHide(); return; }
+        const related = event.relatedTarget;
+        if (related !== null && related !== undefined) {
+          if (related === hovered || button.contains(related) === true) return;
+          if (typeof related.closest === 'function' && related.closest('img') === hovered) return;
+        }
+        if (chatImageAt(event.target) === hovered) scheduleHide();
+      };
+      const onLeaveWindow = () => scheduleHide();
+      const onScrollOrResize = () => { if (button.hidden === false) hide(); };
+      const onButtonClick = async (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (busy || hovered === null) return;
+        const img = hovered;
+        busy = true;
+        try {
+          await copyImage(img);
+          flash(translate('image.copied'), false);
+        } catch (error) {
+          console.warn('conversation-tools: image could not be copied', error);
+          flash(translate('image.failed'), true);
+        } finally {
+          busy = false;
+        }
+      };
+
+      document.addEventListener('pointerover', onOver, true);
+      document.addEventListener('pointerout', onOut, true);
+      document.addEventListener('pointerleave', onLeaveWindow, true);
+      document.addEventListener('scroll', onScrollOrResize, true);
+      window.addEventListener('resize', onScrollOrResize);
+      button.addEventListener('pointerenter', clearHide);
+      button.addEventListener('pointerleave', scheduleHide);
+      button.addEventListener('click', onButtonClick);
+
+      return () => {
+        if (hideTimer) window.clearTimeout(hideTimer);
+        if (labelTimer) window.clearTimeout(labelTimer);
+        document.removeEventListener('pointerover', onOver, true);
+        document.removeEventListener('pointerout', onOut, true);
+        document.removeEventListener('pointerleave', onLeaveWindow, true);
+        document.removeEventListener('scroll', onScrollOrResize, true);
+        window.removeEventListener('resize', onScrollOrResize);
+        button.remove();
+      };
     }
 
     /* ---------- shared open state for the search panel ---------- */
@@ -865,6 +1067,7 @@ window.__ModuleLoader__.load({
 
       const translate = locale.bind(NAMESPACE);
       ctx.effect(() => locale.register(NAMESPACE, { zh: ZH, en: EN }), 'conversation-tools: dictionaries');
+      ctx.effect(() => installImageCopy(translate), 'conversation-tools: image copy');
 
       /**
        * Turn durable attachment references back into composer drafts: read the

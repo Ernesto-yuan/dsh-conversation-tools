@@ -1,6 +1,6 @@
 {
   "meta": {
     "title": "Conversation Tools",
-    "description": "Search the current conversation, recall sent messages (with their attachments) using the up arrow, and regenerate or continue a finished answer."
+    "description": "Search the current conversation, recall sent messages (with their attachments) using the up arrow, copy any image from the conversation with one click, and regenerate or continue a finished answer."
   }
 }

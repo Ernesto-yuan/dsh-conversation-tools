@@ -51,7 +51,7 @@ Then confirm it is enabled under Settings → Plugins. The client bundle needs o
 
 ## Compatibility
 
-Verified on DSH 0.2.1-rc.3.
+Verified on DSH 0.2.2-rc.1, and still compatible with the earlier 0.2.1 line.
 
 ## Notes and limits
 
@@ -59,7 +59,7 @@ Verified on DSH 0.2.1-rc.3.
 - Image copy uses the browser's image clipboard API, which needs a localhost or https page. Bytes are read directly when possible; cross-origin images fall back to rasterizing the element, and anything still unreadable reports Copy failed.
 - Search covers the messages already loaded in the current conversation.
 - Clicking a hit only selects it; there is no jump. The chat list is virtualized and unmounted rows cannot be located, so use Copy message on the hover card instead.
-- Recall covers the current conversation only; one message restores at most 6 attachments, and unreadable ones are skipped.
+- Recall covers the current conversation only; one message restores at most 6 attachments, and unreadable ones are skipped. Since DSH 0.2.2 the host expects the complete attachment reference and verifies it against storage, while earlier releases accepted only the id; the plugin learns which shape works from the first successful read.
 - Regenerate starts a new turn; it does not delete the previous answer.
 
 ## License

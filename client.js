@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     /** Locale namespace of this feature's copy. */
     const NAMESPACE = 'conversation-tools';
     /** Build marker: proves which client bundle the page actually loaded. */
-    const VERSION = '2.3.0';
+    const VERSION = '2.3.1';
     /** Upper bound on rendered search hits. */
     const MAX_RESULTS = 100;
     /** Upper bound on attachments one recall restores. */
@@ -177,9 +177,47 @@ window.__ModuleLoader__.load({
         const ref = block.attachment;
         if (ref === null || ref === undefined || typeof ref !== 'object') continue;
         if (typeof ref.attachmentId !== 'string') continue;
-        refs.push({ attachmentId: ref.attachmentId, mediaType: ref.mediaType, name: ref.name });
+        // Keep the whole reference: newer hosts verify it against storage and
+        // reject a bare id, while older hosts only accept the id string.
+        refs.push({ ...ref });
       }
       return refs;
+    }
+
+    /**
+     * Which argument shape `session.readAttachment` accepts. DSH 0.2.2 起
+     * requires the whole attachment reference and verifies it against storage;
+     * earlier releases took the id string. Learn it from the first success so
+     * the second probe costs at most one call.
+     */
+    const attachmentCallStyle = { current: null };
+
+    /**
+     * Read one attachment through whichever call shape this host accepts.
+     * @param session - the session face owning `readAttachment`.
+     * @param ref - the full attachment reference from the session log.
+     * @returns the successful result, or null when neither shape worked.
+     */
+    async function readAttachmentRef(session, ref) {
+      const modes = attachmentCallStyle.current === 'ref'
+        ? ['ref']
+        : attachmentCallStyle.current === 'id'
+          ? ['id', 'ref']
+          : ['ref', 'id'];
+      for (const mode of modes) {
+        try {
+          const result = mode === 'ref'
+            ? await session.readAttachment(ref)
+            : await session.readAttachment(ref.attachmentId);
+          if (result !== null && result !== undefined && result.ok === true) {
+            attachmentCallStyle.current = mode;
+            return result;
+          }
+        } catch (error) {
+          /* the other shape may be the one this host understands */
+        }
+      }
+      return null;
     }
 
     /** Sent user messages with their attachment references, oldest first. */
@@ -1089,7 +1127,7 @@ window.__ModuleLoader__.load({
         const files = [];
         for (const ref of refs.slice(0, MAX_RESTORED_ATTACHMENTS)) {
           try {
-            const result = await binding.session.readAttachment(ref.attachmentId);
+            const result = await readAttachmentRef(binding.session, ref);
             if (result === null || result === undefined || result.ok !== true) continue;
             const stored = result.value.attachment === undefined ? {} : result.value.attachment;
             const mediaType = typeof stored.mediaType === 'string' ? stored.mediaType : ref.mediaType;

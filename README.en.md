@@ -15,6 +15,7 @@ Four conveniences for the DeepSeek Harness conversation view: in-conversation se
 
 - With an empty composer, press ↑ to recall the last message you sent; keep pressing ↑ to walk further back, ↓ to walk forward.
 - Images and file attachments come back as composer drafts too; recalling another message replaces the previous draft.
+- A message whose turn was stopped or cancelled is recalled as well: the host files it as a message that joined mid-turn, and recall no longer skips it.
 
 ### Copy an image
 

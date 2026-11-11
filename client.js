@@ -7,7 +7,7 @@ window.__ModuleLoader__.load({
     /** Locale namespace of this feature's copy. */
     const NAMESPACE = 'conversation-tools';
     /** Build marker: proves which client bundle the page actually loaded. */
-    const VERSION = '2.3.1';
+    const VERSION = '2.3.2';
     /** Upper bound on rendered search hits. */
     const MAX_RESULTS = 100;
     /** Upper bound on attachments one recall restores. */
@@ -155,7 +155,7 @@ window.__ModuleLoader__.load({
     function collectMessages(snapshot) {
       const messages = [];
       for (const { key, node } of nodeEntries(snapshot)) {
-        if (node.kind === 'user') {
+        if (node.kind === 'user' || node.kind === 'steering') {
           const text = textOfContent(node.data === undefined ? undefined : node.data.content);
           if (text !== '') messages.push({ key, role: 'user', seq: seqOf(node), turn: turnOf(node), text });
         } else if (node.kind === 'assistant-step') {
@@ -220,11 +220,17 @@ window.__ModuleLoader__.load({
       return null;
     }
 
-    /** Sent user messages with their attachment references, oldest first. */
+    /**
+     * Sent user messages with their attachment references, oldest first.
+     * `steering` nodes are messages the host claimed while a turn was already
+     * running — including ones whose turn was then stopped. They are still
+     * messages the user typed, so recall must offer them too; otherwise the
+     * just-sent message is skipped and the previous finished turn comes back.
+     */
     function userHistory(snapshot) {
       const items = [];
       for (const { key, node } of nodeEntries(snapshot)) {
-        if (node.kind !== 'user') continue;
+        if (node.kind !== 'user' && node.kind !== 'steering') continue;
         const content = node.data === undefined ? undefined : node.data.content;
         const text = textOfContent(content);
         const attachments = attachmentsOfContent(content);
